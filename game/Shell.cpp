@@ -5,12 +5,34 @@
 
 namespace wi {
 
+static void DrawShellText(DibBitmap *pbm, Font *pfnt, const char *psz,
+		int x, int y, int cx, int cy, bool fEllipsis = false) {
+	char sz[160];
+	strncpyz(sz, psz != NULL ? psz : "", sizeof(sz));
+	pfnt->DrawText(pbm, sz, x, y, cx, cy, fEllipsis);
+}
+
+static void DrawShellBox(DibBitmap *pbm, Rect *prc, Color clrFill,
+		Color clrBorder, int cxyBorder) {
+	pbm->Fill(prc->left, prc->top, prc->Width(), prc->Height(), clrFill);
+	DrawBorder(pbm, prc, cxyBorder, clrBorder);
+}
+
 // A simple form handler for the main menu, for buttons that want to
 // be processed without ending the modal form loop.
 
 class MainMenuForm : public ShellForm
 {
 public:
+    MainMenuForm() {
+        m_iPressedZone = -1;
+        memset(m_arcActions, 0, sizeof(m_arcActions));
+        memset(m_arcUtility, 0, sizeof(m_arcUtility));
+    }
+
+    virtual void OnPaint(DibBitmap *pbm);
+    virtual void OnPaintControls(DibBitmap *pbm, UpdateMap *pupd) {}
+    virtual bool OnPenEvent(Event *pevt);
     virtual void OnControlSelected(word idc) {
         // Catch this here so the form doesn't get re-created (with associated
         // sound effect).
@@ -33,7 +55,274 @@ public:
         }
         ShellForm::OnControlSelected(idc);
     }
+
+private:
+    void UpdateLayout();
+    Rect m_arcActions[4];
+    Rect m_arcUtility[3];
+    int m_iPressedZone;
 };
+
+void MainMenuForm::UpdateLayout() {
+    int cx = m_rc.Width();
+    int cy = m_rc.Height();
+    int xPad = _max(PcFromFc(8), cx / 24);
+    int gap = _max(PcFromFc(4), cx / 70);
+    int yTop = _max(PcFromFc(10), cy / 24);
+    int cxHero = cx * 37 / 100;
+    int xActions = xPad + cxHero + gap * 2;
+    int cxActions = cx - xActions - xPad;
+    int yActions = cy / 5;
+    int cyAction = (cy * 45 / 100 - gap) / 2;
+    int cxAction = (cxActions - gap) / 2;
+    for (int i = 0; i < 4; i++) {
+        int col = i & 1;
+        int row = i / 2;
+        int x = xActions + col * (cxAction + gap);
+        int y = yActions + row * (cyAction + gap);
+        m_arcActions[i].Set(x, y, x + cxAction, y + cyAction);
+    }
+    int cxUtility = (cxActions - gap * 2) / 3;
+    int yUtility = cy - PcFromFc(27);
+    for (int i = 0; i < 3; i++) {
+        int x = xActions + i * (cxUtility + gap);
+        m_arcUtility[i].Set(x, yUtility, x + cxUtility,
+                yUtility + PcFromFc(14));
+    }
+}
+
+void MainMenuForm::OnPaint(DibBitmap *pbm) {
+    UpdateLayout();
+    int cx = m_rc.Width();
+    int cy = m_rc.Height();
+    int xPad = _max(PcFromFc(8), cx / 24);
+    int gap = _max(PcFromFc(4), cx / 70);
+    int yTop = _max(PcFromFc(10), cy / 24);
+    int cxHero = cx * 37 / 100;
+    int xActions = xPad + cxHero + gap * 2;
+    int yActions = cy / 5;
+    Color clrPanel = GetColor(kiclrListBackground);
+    Color clrPanelDeep = GetColor(kiclrMenuBack);
+    Color clrAccent = GetColor(kiclrCyanSideFirst);
+    Color clrBright = GetColor(kiclrWhite);
+    Color clrMuted = GetColor(kiclrMediumGray);
+    Font *pfntTitle = gapfnt[kifntTitle];
+    Font *pfnt = gapfnt[kifntShadow];
+    Font *pfntButton = gapfnt[kifntButton];
+
+    DrawShellText(pbm, pfntTitle, "HOSTILE TAKEOVER", xPad, yTop,
+            cxHero, PcFromFc(15), false);
+    DrawShellText(pbm, gapfnt[kifntDefault], "TACTICAL COMMAND DECK",
+            xPad, yTop + PcFromFc(17), cxHero, PcFromFc(8), false);
+
+    Rect rcHero;
+    rcHero.Set(xPad, yActions, xPad + cxHero, cy - PcFromFc(28));
+    DrawShellBox(pbm, &rcHero, clrPanel, clrAccent, PcFromFc(1));
+    pbm->Fill(rcHero.left, rcHero.top, PcFromFc(3), rcHero.Height(), clrAccent);
+    DrawShellText(pbm, pfnt, "READY ROOM", rcHero.left + PcFromFc(9),
+            rcHero.top + PcFromFc(9), rcHero.Width() - PcFromFc(18),
+            PcFromFc(9), false);
+    DrawShellText(pbm, pfntTitle, "CHOOSE YOUR", rcHero.left + PcFromFc(9),
+            rcHero.top + PcFromFc(30), rcHero.Width() - PcFromFc(18),
+            PcFromFc(13), false);
+    DrawShellText(pbm, pfntTitle, "NEXT MOVE", rcHero.left + PcFromFc(9),
+            rcHero.top + PcFromFc(45), rcHero.Width() - PcFromFc(18),
+            PcFromFc(13), false);
+    DrawShellText(pbm, pfnt, "Build your campaign, deploy a squad,\nand take back the grid.",
+            rcHero.left + PcFromFc(9), rcHero.top + PcFromFc(67),
+            rcHero.Width() - PcFromFc(18), PcFromFc(24), false);
+    DrawShellText(pbm, gapfnt[kifntDefault], "SYSTEM STATUS", rcHero.left + PcFromFc(9),
+            rcHero.bottom - PcFromFc(32), rcHero.Width() - PcFromFc(18),
+            PcFromFc(7), false);
+    DrawShellText(pbm, pfnt, "ONLINE  /  ALL SYSTEMS NOMINAL",
+            rcHero.left + PcFromFc(9), rcHero.bottom - PcFromFc(21),
+            rcHero.Width() - PcFromFc(18), PcFromFc(8), false);
+
+    const char *aszActions[] = { "PLAY", "LOAD SAVED GAME", "MISSION PACKS",
+            "LEADERBOARD" };
+    if (gfDemo) {
+        aszActions[1] = "PURCHASE";
+    }
+    for (int i = 0; i < 4; i++) {
+        Rect rc = m_arcActions[i];
+        bool fPrimary = (i == 0);
+        DrawShellBox(pbm, &rc, fPrimary ? clrAccent : clrPanelDeep,
+                fPrimary ? clrBright : clrMuted, PcFromFc(1));
+        DrawShellText(pbm, pfntButton, aszActions[i], rc.left + PcFromFc(7),
+                rc.top + PcFromFc(8), rc.Width() - PcFromFc(14),
+                PcFromFc(11), true);
+        const char *pszHint = "";
+        switch (i) {
+        case 0: pszHint = "START A NEW OPERATION"; break;
+        case 1: pszHint = "RESUME YOUR LAST RUN"; break;
+        case 2: pszHint = "EXPAND THE CAMPAIGN"; break;
+        case 3: pszHint = "VIEW GLOBAL STATS"; break;
+        }
+        DrawShellText(pbm, pfnt, pszHint, rc.left + PcFromFc(7),
+                rc.bottom - PcFromFc(16), rc.Width() - PcFromFc(14),
+                PcFromFc(8), false);
+    }
+
+    const char *aszUtility[] = { "OPTIONS", "HELP", "FORUMS" };
+    for (int i = 0; i < 3; i++) {
+        Rect rc = m_arcUtility[i];
+        DrawShellBox(pbm, &rc, clrPanelDeep, clrAccent, PcFromFc(1));
+        DrawShellText(pbm, pfntButton, aszUtility[i], rc.left,
+                rc.top + PcFromFc(3), rc.Width(), PcFromFc(10), false);
+    }
+}
+
+bool MainMenuForm::OnPenEvent(Event *pevt) {
+    UpdateLayout();
+    int x = pevt->x - m_rc.left;
+    int y = pevt->y - m_rc.top;
+    int iZone = -1;
+    for (int i = 0; i < 4; i++) {
+        if (m_arcActions[i].PtIn(x, y)) {
+            iZone = i;
+            break;
+        }
+    }
+    if (iZone == -1) {
+        for (int i = 0; i < 3; i++) {
+            if (m_arcUtility[i].PtIn(x, y)) {
+                iZone = 10 + i;
+                break;
+            }
+        }
+    }
+    if (pevt->eType == penDownEvent) {
+        m_iPressedZone = iZone;
+        return iZone != -1;
+    }
+    if (pevt->eType != penUpEvent) {
+        return m_iPressedZone != -1;
+    }
+    int iPressed = m_iPressedZone;
+    m_iPressedZone = -1;
+    if (iPressed < 0 || iPressed != iZone) {
+        return iPressed != -1;
+    }
+    switch (iPressed) {
+    case 0: OnControlSelected(kidcPlay); break;
+    case 1: OnControlSelected(gfDemo ? kidcBuyMe : kidcLoadSavedGame); break;
+    case 2: OnControlSelected(kidcDownloadMissions); break;
+    case 3: OnControlSelected(kidcLeaderboard); break;
+    case 10: OnControlSelected(kidcSetupGame); break;
+    case 11: OnControlSelected(kidcHelp); break;
+    case 12: OnControlSelected(kidcForums); break;
+    }
+    return true;
+}
+
+class PlayMenuForm : public ShellForm {
+public:
+    PlayMenuForm() {
+        m_iPressedZone = -1;
+        memset(m_arcChoices, 0, sizeof(m_arcChoices));
+        m_rcBack.SetEmpty();
+    }
+    virtual void OnPaint(DibBitmap *pbm);
+    virtual void OnPaintControls(DibBitmap *pbm, UpdateMap *pupd) {}
+    virtual bool OnPenEvent(Event *pevt);
+private:
+    void UpdateLayout();
+    Rect m_arcChoices[2];
+    Rect m_rcBack;
+    int m_iPressedZone;
+};
+
+void PlayMenuForm::UpdateLayout() {
+    int cx = m_rc.Width();
+    int cy = m_rc.Height();
+    int xPad = _max(PcFromFc(10), cx / 12);
+    int gap = _max(PcFromFc(6), cx / 45);
+    int y = cy / 4;
+    int cxChoice = (cx - xPad * 2 - gap) / 2;
+    int cyChoice = cy * 43 / 100;
+    m_arcChoices[0].Set(xPad, y, xPad + cxChoice, y + cyChoice);
+    m_arcChoices[1].Set(xPad + cxChoice + gap, y,
+            xPad + cxChoice * 2 + gap, y + cyChoice);
+    m_rcBack.Set(cx - xPad - PcFromFc(50), cy - PcFromFc(25),
+            cx - xPad, cy - PcFromFc(11));
+}
+
+void PlayMenuForm::OnPaint(DibBitmap *pbm) {
+    UpdateLayout();
+    int cx = m_rc.Width();
+    int xPad = _max(PcFromFc(10), cx / 12);
+    Color clrPanel = GetColor(kiclrListBackground);
+    Color clrDeep = GetColor(kiclrMenuBack);
+    Color clrAccent = GetColor(kiclrCyanSideFirst);
+    Color clrBright = GetColor(kiclrWhite);
+    Color clrMuted = GetColor(kiclrMediumGray);
+    Font *pfntTitle = gapfnt[kifntTitle];
+    Font *pfnt = gapfnt[kifntShadow];
+    Font *pfntButton = gapfnt[kifntButton];
+
+    DrawShellText(pbm, pfntTitle, "PLAY", xPad, PcFromFc(13),
+            cx - xPad * 2, PcFromFc(15), false);
+    DrawShellText(pbm, gapfnt[kifntDefault],
+            "SELECT AN OPERATION TYPE", xPad, PcFromFc(31),
+            cx - xPad * 2, PcFromFc(8), false);
+    const char *aszTitles[] = { "SINGLE PLAYER", "MULTIPLAYER" };
+    const char *aszHints[] = { "CAMPAIGN MISSIONS / CHALLENGES",
+            "ONLINE OPERATIONS WITH YOUR SQUAD" };
+    for (int i = 0; i < 2; i++) {
+        Rect rc = m_arcChoices[i];
+        DrawShellBox(pbm, &rc, i == 0 ? clrAccent : clrPanel,
+                i == 0 ? clrBright : clrMuted, PcFromFc(1));
+        DrawShellText(pbm, pfntTitle, aszTitles[i], rc.left + PcFromFc(9),
+                rc.top + PcFromFc(18), rc.Width() - PcFromFc(18),
+                PcFromFc(15), true);
+        DrawShellText(pbm, pfnt, aszHints[i], rc.left + PcFromFc(9),
+                rc.top + PcFromFc(42), rc.Width() - PcFromFc(18),
+                PcFromFc(12), true);
+        DrawShellText(pbm, pfntButton, "SELECT", rc.left + PcFromFc(9),
+                rc.bottom - PcFromFc(22), rc.Width() - PcFromFc(18),
+                PcFromFc(11), false);
+    }
+    Rect rcBack = m_rcBack;
+    DrawShellBox(pbm, &rcBack, clrDeep, clrAccent, PcFromFc(1));
+    DrawShellText(pbm, pfntButton, "BACK", rcBack.left, rcBack.top + PcFromFc(3),
+            rcBack.Width(), PcFromFc(10), false);
+}
+
+bool PlayMenuForm::OnPenEvent(Event *pevt) {
+    UpdateLayout();
+    int x = pevt->x - m_rc.left;
+    int y = pevt->y - m_rc.top;
+    int iZone = -1;
+    for (int i = 0; i < 2; i++) {
+        if (m_arcChoices[i].PtIn(x, y)) {
+            iZone = i;
+            break;
+        }
+    }
+    if (iZone == -1 && m_rcBack.PtIn(x, y)) {
+        iZone = 2;
+    }
+    if (pevt->eType == penDownEvent) {
+        m_iPressedZone = iZone;
+        return iZone != -1;
+    }
+    if (pevt->eType != penUpEvent) {
+        return m_iPressedZone != -1;
+    }
+    int iPressed = m_iPressedZone;
+    m_iPressedZone = -1;
+    if (iPressed < 0 || iPressed != iZone) {
+        return iPressed != -1;
+    }
+    if (iPressed == 0) {
+        OnControlSelected(kidcPlaySinglePlayer);
+    } else if (iPressed == 1) {
+        OnControlSelected(kidcPlayMultiPlayer);
+    } else {
+        OnControlSelected(kidcCancel);
+    }
+    return true;
+}
 
 Shell gshl;
 Shell::Shell()
@@ -316,7 +605,7 @@ bool Shell::DoPlay()
 {
     while (true) {
         ShellForm *pfrm = (ShellForm *)gpmfrmm->LoadForm(gpiniForms,
-                kidfPlay, new ShellForm());
+                kidfPlay, new PlayMenuForm());
         if (pfrm == NULL) {
             return kidcCancel;
         }

@@ -235,8 +235,8 @@ void SelectMissionForm::OnPaint(DibBitmap *pbm) {
 	UpdateLayout();
 	int xForm = m_rc.left;
 	int yForm = m_rc.top;
-	Color clrPanel = GetColor(kiclrMenuBack);
-	Color clrPanelAlt = GetColor(kiclrListBackground);
+	Color clrPanel = GetColor(kiclrListBackground);
+	Color clrPanelAlt = GetColor(kiclrFormBackground);
 	Color clrAccent = GetColor(kiclrCyanSideFirst);
 	Color clrAccentBright = GetColor(kiclrWhite);
 	Color clrMuted = GetColor(kiclrMediumGray);
@@ -244,11 +244,12 @@ void SelectMissionForm::OnPaint(DibBitmap *pbm) {
 	Font *pfnt = gapfnt[kifntShadow];
 	Font *pfntButton = gapfnt[kifntButton];
 
-	DrawMissionText(pbm, pfntTitle, "PLAY SINGLE PLAYER MISSION", xForm,
-			yForm + PcFromFc(5), m_rc.Width(), PcFromFc(13), false);
+	int xPad = _max(PcFromFc(8), m_rc.Width() / 40);
+	DrawMissionText(pbm, pfntTitle, "CAMPAIGN HUB", xForm + xPad,
+			yForm + PcFromFc(7), m_rc.Width() - xPad * 2, PcFromFc(13), false);
 	DrawMissionText(pbm, gapfnt[kifntDefault], "SELECT YOUR NEXT OPERATION",
-			xForm + PcFromFc(8), yForm + PcFromFc(17),
-			m_rc.Width() - PcFromFc(16), PcFromFc(7), false);
+			xForm + xPad, yForm + PcFromFc(20),
+			m_rc.Width() - xPad * 2, PcFromFc(7), false);
 
 	const char *aszTabs[] = { "STORY", "CHALLENGE", "ADD-ON" };
 	for (int i = 0; i < 3; i++) {
@@ -331,6 +332,12 @@ void SelectMissionForm::OnPaint(DibBitmap *pbm) {
 	DrawMissionText(pbm, pfntButton, "BACK", rcBack.left,
 			rcBack.top + PcFromFc(3), rcBack.Width(),
 		rcBack.Height() - PcFromFc(3), false);
+}
+
+void SelectMissionForm::OnPaintControls(DibBitmap *pbm, UpdateMap *pupd) {
+	// The legacy form controls remain the data and navigation source for this
+	// screen, but their compact renderer is intentionally not painted. The
+	// campaign hub above owns the complete visual layer and touch handling.
 }
 
 int SelectMissionForm::IndexFromMissionType(MissionType mt) {
@@ -565,6 +572,15 @@ bool SelectMissionForm::OnPenEvent(Event *pevt) {
 		return true;
 	}
 	if (iPressedZone == 21) {
+		// Preserve the legacy debug/QA unlock gesture even though the visual
+		// Back button is now custom-painted.
+		if (m_mt == kmtStory) {
+			m_cMagic++;
+			if (m_cMagic >= 5) {
+				m_cMagic = 0;
+				m_fMagicUnlock = true;
+			}
+		}
 		OnControlSelected(kidcCancel);
 		return true;
 	}

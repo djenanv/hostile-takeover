@@ -3878,6 +3878,7 @@ public:
 
 	virtual bool Init(FormMgr *pfrmm, IniReader *pini, word idf) secGame;
 	virtual void OnPaint(DibBitmap *pbm) secGame;
+	virtual void OnPaintControls(DibBitmap *pbm, UpdateMap *pupd) secGame;
 	virtual void OnControlSelected(word idc) secGame;
 	virtual void OnControlNotify(word idc, int nNotify);
     virtual bool OnPenEvent(Event *pevt);
