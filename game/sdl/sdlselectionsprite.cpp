@@ -50,8 +50,8 @@ void SdlSelectionSprite::Draw(void *pv, Size *psiz) {
         int next = i + 1 == ARRAYSIZE(apt) ? 0 : i + 1;
 
         // x/y are swapped
-        Point pt1 = {apt[i].y, apt[i].x};
-        Point pt2 = {apt[next].y, apt[next].x};
+        Point pt1 = {static_cast<int>(apt[i].y), static_cast<int>(apt[i].x)};
+        Point pt2 = {static_cast<int>(apt[next].y), static_cast<int>(apt[next].x)};
 
         // draw the selection sprite line
         SDL_RenderDrawLine(renderer, pt1.x, pt1.y, pt2.x, pt2.y);
