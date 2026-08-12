@@ -3876,11 +3876,11 @@ public:
 
 	// Form overrides
 
-	virtual bool Init(FormMgr *pfrmm, IniReader *pini, word idf) secGame;
-	virtual void OnPaint(DibBitmap *pbm) secGame;
-	virtual void OnPaintControls(DibBitmap *pbm, UpdateMap *pupd) secGame;
-	virtual void OnControlSelected(word idc) secGame;
-	virtual void OnControlNotify(word idc, int nNotify);
+    virtual bool Init(FormMgr *pfrmm, IniReader *pini, word idf) secGame;
+    virtual void OnControlSelected(word idc) secGame;
+    virtual void OnControlNotify(word idc, int nNotify);
+    virtual void OnPaint(DibBitmap *pbm);
+    virtual void OnPaintControls(DibBitmap *pbm, UpdateMap *pupd);
     virtual bool OnPenEvent(Event *pevt);
 
 private:
@@ -3892,10 +3892,11 @@ private:
     bool IsSelectedMissionLocked(ListControl *plstc);
     void SwitchToMissionType(MissionType mt);
     void UpdateDescription();
-	void UpdateLayout();
-	void HideLegacyControls();
-	bool GetCardMission(int iCard, int *piMission, MissionDescription *pmd,
-			bool *pfLocked, bool *pfComplete);
+    void HideLegacyControls();
+    void UpdateLayout();
+    bool GetMissionCard(int iOffset, int *piGlobal, int *piCategory,
+            MissionDescription *pmd, bool *pfLocked, bool *pfComplete);
+    bool SelectMissionOffset(int iOffset);
 
     int m_fMagicUnlock;
     int m_cMagic;
@@ -3903,11 +3904,14 @@ private:
     const MissionIdentifier *m_pmiidFind;
     MissionType m_mt;
     ListControl *m_aplstc[3];
-	Rect m_arcTabs[3];
-	Rect m_arcCards[4];
-	Rect m_rcPlay;
-	Rect m_rcBack;
-	int m_iPressedZone;
+    Rect m_arcTabs[3];
+    Rect m_rcFeature;
+    Rect m_arcPreview[3];
+    Rect m_rcPlay;
+    Rect m_rcBack;
+    Rect m_rcPrevious;
+    Rect m_rcNext;
+    int m_iPressedZone;
 };
 
 // LoadGameForm

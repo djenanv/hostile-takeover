@@ -6,16 +6,60 @@
 namespace wi {
 
 static void DrawShellText(DibBitmap *pbm, Font *pfnt, const char *psz,
-		int x, int y, int cx, int cy, bool fEllipsis = false) {
-	char sz[160];
-	strncpyz(sz, psz != NULL ? psz : "", sizeof(sz));
-	pfnt->DrawText(pbm, sz, x, y, cx, cy, fEllipsis);
+        int x, int y, int cx = -1, int cy = -1, bool fEllipsis = false) {
+    char sz[256];
+    strncpyz(sz, psz != NULL ? psz : "", sizeof(sz));
+    if (cx < 0) {
+        pfnt->DrawText(pbm, sz, x, y);
+    } else {
+        pfnt->DrawText(pbm, sz, x, y, cx, cy, fEllipsis);
+    }
 }
 
-static void DrawShellBox(DibBitmap *pbm, Rect *prc, Color clrFill,
-		Color clrBorder, int cxyBorder) {
-	pbm->Fill(prc->left, prc->top, prc->Width(), prc->Height(), clrFill);
-	DrawBorder(pbm, prc, cxyBorder, clrBorder);
+static void DrawShellPanel(DibBitmap *pbm, Rect *prc, Color clrFill,
+        Color clrBorder) {
+    pbm->Fill(prc->left, prc->top, prc->Width(), prc->Height(), clrFill);
+    DrawBorder(pbm, prc, PcFromFc(1), clrBorder);
+}
+
+static void DrawShellFrame(DibBitmap *pbm, Rect *prc, Color clrBorder) {
+    DrawBorder(pbm, prc, PcFromFc(1), clrBorder);
+    int c = PcFromFc(4);
+    pbm->DrawLine(prc->left, prc->top, prc->left + c, prc->top,
+            GetColor(kiclrWhite));
+    pbm->DrawLine(prc->right - c, prc->bottom - 1, prc->right - 1,
+            prc->bottom - 1, GetColor(kiclrWhite));
+}
+
+static void DrawShellBackdrop(DibBitmap *pbm, int cx, int cy) {
+    Color clrGrid = GetColor(kiclrBlueSideFirst);
+    Color clrAccent = GetColor(kiclrCyanSideFirst);
+    int c = PcFromFc(20);
+    if (c < 8) {
+        c = 8;
+    }
+    for (int x = c / 2; x < cx; x += c) {
+        pbm->DrawLine(x, 0, x, cy, clrGrid);
+    }
+    for (int y = c / 2; y < cy; y += c) {
+        pbm->DrawLine(0, y, cx, y, clrGrid);
+    }
+    pbm->DrawLine(0, cy / 2, cx, cy / 2, clrAccent);
+    pbm->DrawLine(0, cy / 2 - PcFromFc(34), cx / 3,
+            cy / 2 - PcFromFc(34) - cx / 8, clrGrid);
+    pbm->DrawLine(cx, cy / 2 + PcFromFc(42), cx * 2 / 3,
+            cy / 2 + PcFromFc(42) + cx / 8, clrGrid);
+}
+
+static void DrawShellStatus(DibBitmap *pbm, Rect *prc, const char *pszLabel,
+        const char *pszValue) {
+    Font *pfnt = gapfnt[kifntShadow];
+    int x = prc->left;
+    int y = prc->top;
+    DrawShellText(pbm, gapfnt[kifntDefault], pszLabel, x, y,
+            prc->Width(), pfnt->GetHeight(), false);
+    DrawShellText(pbm, pfnt, pszValue, x, y + pfnt->GetHeight() + PcFromFc(1),
+            prc->Width(), pfnt->GetHeight(), false);
 }
 
 // A simple form handler for the main menu, for buttons that want to
@@ -28,11 +72,22 @@ public:
         m_iPressedZone = -1;
         memset(m_arcActions, 0, sizeof(m_arcActions));
         memset(m_arcUtility, 0, sizeof(m_arcUtility));
+        m_rcHero.SetEmpty();
+    }
+
+    virtual bool Init(FormMgr *pfrmm, IniReader *pini, word idf) {
+        if (!ShellForm::Init(pfrmm, pini, idf)) {
+            return false;
+        }
+        HideLegacyControls();
+        UpdateLayout();
+        return true;
     }
 
     virtual void OnPaint(DibBitmap *pbm);
     virtual void OnPaintControls(DibBitmap *pbm, UpdateMap *pupd) {}
     virtual bool OnPenEvent(Event *pevt);
+
     virtual void OnControlSelected(word idc) {
         // Catch this here so the form doesn't get re-created (with associated
         // sound effect).
@@ -57,7 +112,14 @@ public:
     }
 
 private:
+    void HideLegacyControls() {
+        for (int i = 0; i < m_cctl; i++) {
+            m_apctl[i]->Show(false);
+        }
+    }
     void UpdateLayout();
+
+    Rect m_rcHero;
     Rect m_arcActions[4];
     Rect m_arcUtility[3];
     int m_iPressedZone;
@@ -66,28 +128,26 @@ private:
 void MainMenuForm::UpdateLayout() {
     int cx = m_rc.Width();
     int cy = m_rc.Height();
-    int xPad = _max(PcFromFc(8), cx / 24);
-    int gap = _max(PcFromFc(4), cx / 70);
-    int yTop = _max(PcFromFc(10), cy / 24);
-    int cxHero = cx * 37 / 100;
-    int xActions = xPad + cxHero + gap * 2;
-    int cxActions = cx - xActions - xPad;
-    int yActions = cy / 5;
-    int cyAction = (cy * 45 / 100 - gap) / 2;
-    int cxAction = (cxActions - gap) / 2;
+    int pad = PcFromFc(6);
+    int gap = PcFromFc(4);
+    int yBottom = cy - PcFromFc(28);
+    int xHeroRight = cx * 43 / 100;
+    m_rcHero.Set(pad, PcFromFc(42), xHeroRight, yBottom);
+
+    int xActions = xHeroRight + gap;
+    int cxActions = cx - xActions - pad;
+    int y = PcFromFc(32);
+    int cyAction = PcFromFc(22);
     for (int i = 0; i < 4; i++) {
-        int col = i & 1;
-        int row = i / 2;
-        int x = xActions + col * (cxAction + gap);
-        int y = yActions + row * (cyAction + gap);
-        m_arcActions[i].Set(x, y, x + cxAction, y + cyAction);
+        m_arcActions[i].Set(xActions, y + i * (cyAction + gap),
+                xActions + cxActions, y + i * (cyAction + gap) + cyAction);
     }
+
     int cxUtility = (cxActions - gap * 2) / 3;
-    int yUtility = cy - PcFromFc(27);
     for (int i = 0; i < 3; i++) {
         int x = xActions + i * (cxUtility + gap);
-        m_arcUtility[i].Set(x, yUtility, x + cxUtility,
-                yUtility + PcFromFc(14));
+        m_arcUtility[i].Set(x, yBottom + PcFromFc(4), x + cxUtility,
+                yBottom + PcFromFc(17));
     }
 }
 
@@ -95,81 +155,85 @@ void MainMenuForm::OnPaint(DibBitmap *pbm) {
     UpdateLayout();
     int cx = m_rc.Width();
     int cy = m_rc.Height();
-    int xPad = _max(PcFromFc(8), cx / 24);
-    int gap = _max(PcFromFc(4), cx / 70);
-    int yTop = _max(PcFromFc(10), cy / 24);
-    int cxHero = cx * 37 / 100;
-    int xActions = xPad + cxHero + gap * 2;
-    int yActions = cy / 5;
-    Color clrPanel = GetColor(kiclrListBackground);
-    Color clrPanelDeep = GetColor(kiclrMenuBack);
+    Color clrDeep = GetColor(kiclrMenuBack);
     Color clrAccent = GetColor(kiclrCyanSideFirst);
-    Color clrBright = GetColor(kiclrWhite);
     Color clrMuted = GetColor(kiclrMediumGray);
-    Font *pfntTitle = gapfnt[kifntTitle];
     Font *pfnt = gapfnt[kifntShadow];
-    Font *pfntButton = gapfnt[kifntButton];
 
-    DrawShellText(pbm, pfntTitle, "HOSTILE TAKEOVER", xPad, yTop,
-            cxHero, PcFromFc(15), false);
-    DrawShellText(pbm, gapfnt[kifntDefault], "TACTICAL COMMAND DECK",
-            xPad, yTop + PcFromFc(17), cxHero, PcFromFc(8), false);
+    DrawShellBackdrop(pbm, cx, cy);
+    DrawShellText(pbm, gapfnt[kifntTitle], "HOSTILE TAKEOVER", PcFromFc(6),
+            PcFromFc(5), cx - PcFromFc(12), gapfnt[kifntTitle]->GetHeight(),
+            false);
+    DrawShellText(pbm, gapfnt[kifntDefault],
+            "TACTICAL COMMAND  /  SECURE CHANNEL", PcFromFc(6),
+            PcFromFc(21), cx - PcFromFc(12), pfnt->GetHeight(), false);
 
-    Rect rcHero;
-    rcHero.Set(xPad, yActions, xPad + cxHero, cy - PcFromFc(28));
-    DrawShellBox(pbm, &rcHero, clrPanel, clrAccent, PcFromFc(1));
-    pbm->Fill(rcHero.left, rcHero.top, PcFromFc(3), rcHero.Height(), clrAccent);
-    DrawShellText(pbm, pfnt, "READY ROOM", rcHero.left + PcFromFc(9),
-            rcHero.top + PcFromFc(9), rcHero.Width() - PcFromFc(18),
-            PcFromFc(9), false);
-    DrawShellText(pbm, pfntTitle, "CHOOSE YOUR", rcHero.left + PcFromFc(9),
-            rcHero.top + PcFromFc(30), rcHero.Width() - PcFromFc(18),
-            PcFromFc(13), false);
-    DrawShellText(pbm, pfntTitle, "NEXT MOVE", rcHero.left + PcFromFc(9),
-            rcHero.top + PcFromFc(45), rcHero.Width() - PcFromFc(18),
-            PcFromFc(13), false);
-    DrawShellText(pbm, pfnt, "Build your campaign, deploy a squad,\nand take back the grid.",
-            rcHero.left + PcFromFc(9), rcHero.top + PcFromFc(67),
-            rcHero.Width() - PcFromFc(18), PcFromFc(24), false);
-    DrawShellText(pbm, gapfnt[kifntDefault], "SYSTEM STATUS", rcHero.left + PcFromFc(9),
-            rcHero.bottom - PcFromFc(32), rcHero.Width() - PcFromFc(18),
-            PcFromFc(7), false);
-    DrawShellText(pbm, pfnt, "ONLINE  /  ALL SYSTEMS NOMINAL",
-            rcHero.left + PcFromFc(9), rcHero.bottom - PcFromFc(21),
-            rcHero.Width() - PcFromFc(18), PcFromFc(8), false);
+    DrawShellFrame(pbm, &m_rcHero, clrAccent);
+    pbm->Fill(m_rcHero.left, m_rcHero.top, PcFromFc(3), m_rcHero.Height(),
+            clrAccent);
+    DrawShellText(pbm, gapfnt[kifntDefault], "OPERATIONS DECK",
+            m_rcHero.left + PcFromFc(8), m_rcHero.top + PcFromFc(7),
+            m_rcHero.Width() - PcFromFc(16), pfnt->GetHeight(), false);
+    DrawShellText(pbm, gapfnt[kifntTitle], "READY",
+            m_rcHero.left + PcFromFc(8), m_rcHero.top + PcFromFc(25),
+            m_rcHero.Width() - PcFromFc(16), gapfnt[kifntTitle]->GetHeight(),
+            false);
+    DrawShellText(pbm, pfnt, "YOUR NEXT OPERATION IS WAITING.",
+            m_rcHero.left + PcFromFc(8), m_rcHero.top + PcFromFc(46),
+            m_rcHero.Width() - PcFromFc(16), pfnt->GetHeight(), false);
 
-    const char *aszActions[] = { "PLAY", "LOAD SAVED GAME", "MISSION PACKS",
+    int xMid = m_rcHero.left + m_rcHero.Width() / 2;
+    int yMid = m_rcHero.top + m_rcHero.Height() / 2;
+    int r = _min(m_rcHero.Width(), m_rcHero.Height()) / 4;
+    pbm->DrawLine(xMid - r, yMid, xMid + r, yMid, clrAccent);
+    pbm->DrawLine(xMid, yMid - r, xMid, yMid + r, clrAccent);
+    pbm->DrawLine(xMid - r, yMid, xMid, yMid - r / 2, clrMuted);
+    pbm->DrawLine(xMid, yMid - r / 2, xMid + r, yMid, clrMuted);
+    pbm->DrawLine(xMid + r, yMid, xMid, yMid + r / 2, clrMuted);
+    pbm->DrawLine(xMid, yMid + r / 2, xMid - r, yMid, clrMuted);
+    pbm->Fill(xMid - PcFromFc(1), yMid - PcFromFc(1), PcFromFc(2),
+            PcFromFc(2), GetColor(kiclrWhite));
+
+    Rect rcStatus;
+    rcStatus.Set(m_rcHero.left + PcFromFc(8), m_rcHero.bottom - PcFromFc(45),
+            m_rcHero.right - PcFromFc(8), m_rcHero.bottom - PcFromFc(8));
+    DrawShellStatus(pbm, &rcStatus, "SYSTEM STATUS", "ONLINE  /  ALL SYSTEMS NOMINAL");
+    pbm->Fill(rcStatus.left, rcStatus.bottom - PcFromFc(2),
+            rcStatus.Width() * 3 / 4, PcFromFc(1), clrAccent);
+
+    const char *aszAction[] = { "PLAY", "LOAD SAVED GAME", "MISSION PACKS",
             "LEADERBOARD" };
+    const char *aszHint[] = { "START A NEW OPERATION", "RESUME YOUR LAST RUN",
+            "EXPAND THE CAMPAIGN", "VIEW GLOBAL STATS" };
     if (gfDemo) {
-        aszActions[1] = "PURCHASE";
+        aszAction[1] = "PURCHASE";
+        aszHint[1] = "UNLOCK THE FULL CAMPAIGN";
     }
     for (int i = 0; i < 4; i++) {
         Rect rc = m_arcActions[i];
-        bool fPrimary = (i == 0);
-        DrawShellBox(pbm, &rc, fPrimary ? clrAccent : clrPanelDeep,
-                fPrimary ? clrBright : clrMuted, PcFromFc(1));
-        DrawShellText(pbm, pfntButton, aszActions[i], rc.left + PcFromFc(7),
-                rc.top + PcFromFc(8), rc.Width() - PcFromFc(14),
-                PcFromFc(11), true);
-        const char *pszHint = "";
-        switch (i) {
-        case 0: pszHint = "START A NEW OPERATION"; break;
-        case 1: pszHint = "RESUME YOUR LAST RUN"; break;
-        case 2: pszHint = "EXPAND THE CAMPAIGN"; break;
-        case 3: pszHint = "VIEW GLOBAL STATS"; break;
-        }
-        DrawShellText(pbm, pfnt, pszHint, rc.left + PcFromFc(7),
-                rc.bottom - PcFromFc(16), rc.Width() - PcFromFc(14),
-                PcFromFc(8), false);
+        bool fPrimary = i == 0;
+        DrawShellPanel(pbm, &rc, fPrimary ? clrAccent : clrDeep,
+                fPrimary ? GetColor(kiclrWhite) : clrMuted);
+        DrawShellText(pbm, gapfnt[kifntButton], aszAction[i],
+                rc.left + PcFromFc(7), rc.top + PcFromFc(1),
+                rc.Width() - PcFromFc(14), gapfnt[kifntButton]->GetHeight(), true);
+        DrawShellText(pbm, pfnt, aszHint[i], rc.left + PcFromFc(7),
+                rc.bottom - pfnt->GetHeight() - PcFromFc(1),
+                rc.Width() - PcFromFc(14), pfnt->GetHeight(), true);
     }
 
     const char *aszUtility[] = { "OPTIONS", "HELP", "FORUMS" };
     for (int i = 0; i < 3; i++) {
         Rect rc = m_arcUtility[i];
-        DrawShellBox(pbm, &rc, clrPanelDeep, clrAccent, PcFromFc(1));
-        DrawShellText(pbm, pfntButton, aszUtility[i], rc.left,
-                rc.top + PcFromFc(3), rc.Width(), PcFromFc(10), false);
+        DrawShellPanel(pbm, &rc, clrDeep, clrAccent);
+        DrawShellText(pbm, gapfnt[kifntButton], aszUtility[i], rc.left,
+                rc.top + PcFromFc(1), rc.Width(),
+                gapfnt[kifntButton]->GetHeight(), true);
     }
+
+    DrawShellText(pbm, pfnt, "v1.0  /  SPiFFCODE COMMAND SYSTEM",
+            PcFromFc(6), cy - PcFromFc(9), cx - PcFromFc(12),
+            pfnt->GetHeight(), false);
 }
 
 bool MainMenuForm::OnPenEvent(Event *pevt) {
@@ -177,40 +241,63 @@ bool MainMenuForm::OnPenEvent(Event *pevt) {
     int x = pevt->x - m_rc.left;
     int y = pevt->y - m_rc.top;
     int iZone = -1;
-    for (int i = 0; i < 4; i++) {
-        if (m_arcActions[i].PtIn(x, y)) {
-            iZone = i;
-            break;
-        }
-    }
-    if (iZone == -1) {
-        for (int i = 0; i < 3; i++) {
-            if (m_arcUtility[i].PtIn(x, y)) {
-                iZone = 10 + i;
+    if (m_rcHero.PtIn(x, y)) {
+        iZone = 0;
+    } else {
+        for (int i = 0; i < 4; i++) {
+            if (m_arcActions[i].PtIn(x, y)) {
+                iZone = i;
                 break;
             }
         }
+        if (iZone < 0) {
+            for (int i = 0; i < 3; i++) {
+                if (m_arcUtility[i].PtIn(x, y)) {
+                    iZone = 10 + i;
+                    break;
+                }
+            }
+        }
     }
+
     if (pevt->eType == penDownEvent) {
         m_iPressedZone = iZone;
-        return iZone != -1;
+        if (iZone >= 0) {
+            InvalidateRect(NULL);
+        }
+        return iZone >= 0;
     }
     if (pevt->eType != penUpEvent) {
-        return m_iPressedZone != -1;
+        return m_iPressedZone >= 0;
     }
+
     int iPressed = m_iPressedZone;
     m_iPressedZone = -1;
     if (iPressed < 0 || iPressed != iZone) {
-        return iPressed != -1;
+        return iPressed >= 0;
     }
     switch (iPressed) {
-    case 0: OnControlSelected(kidcPlay); break;
-    case 1: OnControlSelected(gfDemo ? kidcBuyMe : kidcLoadSavedGame); break;
-    case 2: OnControlSelected(kidcDownloadMissions); break;
-    case 3: OnControlSelected(kidcLeaderboard); break;
-    case 10: OnControlSelected(kidcSetupGame); break;
-    case 11: OnControlSelected(kidcHelp); break;
-    case 12: OnControlSelected(kidcForums); break;
+    case 0:
+        OnControlSelected(kidcPlay);
+        break;
+    case 1:
+        OnControlSelected(gfDemo ? kidcBuyMe : kidcLoadSavedGame);
+        break;
+    case 2:
+        OnControlSelected(kidcDownloadMissions);
+        break;
+    case 3:
+        OnControlSelected(kidcLeaderboard);
+        break;
+    case 10:
+        OnControlSelected(kidcSetupGame);
+        break;
+    case 11:
+        OnControlSelected(kidcHelp);
+        break;
+    case 12:
+        OnControlSelected(kidcForums);
+        break;
     }
     return true;
 }
@@ -222,9 +309,21 @@ public:
         memset(m_arcChoices, 0, sizeof(m_arcChoices));
         m_rcBack.SetEmpty();
     }
+
+    virtual bool Init(FormMgr *pfrmm, IniReader *pini, word idf) {
+        if (!ShellForm::Init(pfrmm, pini, idf)) {
+            return false;
+        }
+        for (int i = 0; i < m_cctl; i++) {
+            m_apctl[i]->Show(false);
+        }
+        UpdateLayout();
+        return true;
+    }
     virtual void OnPaint(DibBitmap *pbm);
     virtual void OnPaintControls(DibBitmap *pbm, UpdateMap *pupd) {}
     virtual bool OnPenEvent(Event *pevt);
+
 private:
     void UpdateLayout();
     Rect m_arcChoices[2];
@@ -235,57 +334,71 @@ private:
 void PlayMenuForm::UpdateLayout() {
     int cx = m_rc.Width();
     int cy = m_rc.Height();
-    int xPad = _max(PcFromFc(10), cx / 12);
-    int gap = _max(PcFromFc(6), cx / 45);
-    int y = cy / 4;
-    int cxChoice = (cx - xPad * 2 - gap) / 2;
-    int cyChoice = cy * 43 / 100;
-    m_arcChoices[0].Set(xPad, y, xPad + cxChoice, y + cyChoice);
-    m_arcChoices[1].Set(xPad + cxChoice + gap, y,
-            xPad + cxChoice * 2 + gap, y + cyChoice);
-    m_rcBack.Set(cx - xPad - PcFromFc(50), cy - PcFromFc(25),
-            cx - xPad, cy - PcFromFc(11));
+    int pad = PcFromFc(8);
+    int gap = PcFromFc(5);
+    int y = PcFromFc(53);
+    int bottom = cy - PcFromFc(31);
+    int cxChoice = (cx - pad * 2 - gap) / 2;
+    for (int i = 0; i < 2; i++) {
+        int x = pad + i * (cxChoice + gap);
+        m_arcChoices[i].Set(x, y, x + cxChoice, bottom);
+    }
+    m_rcBack.Set(cx - pad - PcFromFc(43), cy - PcFromFc(24),
+            cx - pad, cy - PcFromFc(8));
 }
 
 void PlayMenuForm::OnPaint(DibBitmap *pbm) {
     UpdateLayout();
     int cx = m_rc.Width();
-    int xPad = _max(PcFromFc(10), cx / 12);
+    int cy = m_rc.Height();
     Color clrPanel = GetColor(kiclrListBackground);
     Color clrDeep = GetColor(kiclrMenuBack);
     Color clrAccent = GetColor(kiclrCyanSideFirst);
-    Color clrBright = GetColor(kiclrWhite);
     Color clrMuted = GetColor(kiclrMediumGray);
-    Font *pfntTitle = gapfnt[kifntTitle];
     Font *pfnt = gapfnt[kifntShadow];
-    Font *pfntButton = gapfnt[kifntButton];
 
-    DrawShellText(pbm, pfntTitle, "PLAY", xPad, PcFromFc(13),
-            cx - xPad * 2, PcFromFc(15), false);
-    DrawShellText(pbm, gapfnt[kifntDefault],
-            "SELECT AN OPERATION TYPE", xPad, PcFromFc(31),
-            cx - xPad * 2, PcFromFc(8), false);
-    const char *aszTitles[] = { "SINGLE PLAYER", "MULTIPLAYER" };
-    const char *aszHints[] = { "CAMPAIGN MISSIONS / CHALLENGES",
-            "ONLINE OPERATIONS WITH YOUR SQUAD" };
+    DrawShellBackdrop(pbm, cx, cy);
+    DrawShellText(pbm, gapfnt[kifntDefault], "COMMAND MODE  /  SELECT DEPLOYMENT",
+            PcFromFc(8), PcFromFc(7), cx - PcFromFc(16), pfnt->GetHeight(), false);
+    DrawShellText(pbm, gapfnt[kifntTitle], "PLAY GAME", 0, PcFromFc(20), cx,
+            gapfnt[kifntTitle]->GetHeight(), false);
+    pbm->Fill(PcFromFc(8), PcFromFc(38), cx - PcFromFc(16), PcFromFc(1),
+            clrAccent);
+
+    const char *aszTitle[] = { "SINGLE PLAYER", "MULTIPLAYER" };
+    const char *aszSub[] = { "CAMPAIGN OPERATIONS", "SKIRMISH NETWORK" };
+    const char *aszBody[] = {
+        "PLAY THE STORY AND MASTER THE SYSTEMS.",
+        "HOST OR JOIN A MATCH."
+    };
     for (int i = 0; i < 2; i++) {
         Rect rc = m_arcChoices[i];
-        DrawShellBox(pbm, &rc, i == 0 ? clrAccent : clrPanel,
-                i == 0 ? clrBright : clrMuted, PcFromFc(1));
-        DrawShellText(pbm, pfntTitle, aszTitles[i], rc.left + PcFromFc(9),
-                rc.top + PcFromFc(18), rc.Width() - PcFromFc(18),
-                PcFromFc(15), true);
-        DrawShellText(pbm, pfnt, aszHints[i], rc.left + PcFromFc(9),
-                rc.top + PcFromFc(42), rc.Width() - PcFromFc(18),
-                PcFromFc(12), true);
-        DrawShellText(pbm, pfntButton, "SELECT", rc.left + PcFromFc(9),
-                rc.bottom - PcFromFc(22), rc.Width() - PcFromFc(18),
-                PcFromFc(11), false);
+        DrawShellPanel(pbm, &rc, i == 0 ? clrAccent : clrPanel,
+                i == 0 ? GetColor(kiclrWhite) : clrMuted);
+        DrawShellText(pbm, gapfnt[kifntButton], aszTitle[i],
+                rc.left + PcFromFc(10), rc.top + PcFromFc(9),
+                rc.Width() - PcFromFc(20), gapfnt[kifntButton]->GetHeight(), true);
+        DrawShellText(pbm, pfnt, aszSub[i], rc.left + PcFromFc(10),
+                rc.top + PcFromFc(27), rc.Width() - PcFromFc(20),
+                pfnt->GetHeight(), false);
+        DrawShellText(pbm, pfnt, aszBody[i], rc.left + PcFromFc(10),
+                rc.top + PcFromFc(39), rc.Width() - PcFromFc(20),
+                PcFromFc(11), true);
+
+        int ySignal = rc.bottom - PcFromFc(23);
+        pbm->Fill(rc.left + PcFromFc(10), ySignal,
+                rc.Width() - PcFromFc(20), PcFromFc(1),
+                i == 0 ? GetColor(kiclrWhite) : clrAccent);
+        DrawShellText(pbm, gapfnt[kifntDefault],
+                i == 0 ? "PRIMARY ROUTE" : "NETWORK ROUTE",
+                rc.left + PcFromFc(10), ySignal + PcFromFc(3),
+                rc.Width() - PcFromFc(20), pfnt->GetHeight(), false);
     }
-    Rect rcBack = m_rcBack;
-    DrawShellBox(pbm, &rcBack, clrDeep, clrAccent, PcFromFc(1));
-    DrawShellText(pbm, pfntButton, "BACK", rcBack.left, rcBack.top + PcFromFc(3),
-            rcBack.Width(), PcFromFc(10), false);
+
+    DrawShellPanel(pbm, &m_rcBack, clrDeep, clrAccent);
+    DrawShellText(pbm, gapfnt[kifntButton], "BACK", m_rcBack.left,
+            m_rcBack.top + PcFromFc(1), m_rcBack.Width(),
+            gapfnt[kifntButton]->GetHeight(), false);
 }
 
 bool PlayMenuForm::OnPenEvent(Event *pevt) {
@@ -299,27 +412,30 @@ bool PlayMenuForm::OnPenEvent(Event *pevt) {
             break;
         }
     }
-    if (iZone == -1 && m_rcBack.PtIn(x, y)) {
+    if (iZone < 0 && m_rcBack.PtIn(x, y)) {
         iZone = 2;
     }
     if (pevt->eType == penDownEvent) {
         m_iPressedZone = iZone;
-        return iZone != -1;
+        if (iZone >= 0) {
+            InvalidateRect(NULL);
+        }
+        return iZone >= 0;
     }
     if (pevt->eType != penUpEvent) {
-        return m_iPressedZone != -1;
+        return m_iPressedZone >= 0;
     }
     int iPressed = m_iPressedZone;
     m_iPressedZone = -1;
     if (iPressed < 0 || iPressed != iZone) {
-        return iPressed != -1;
+        return iPressed >= 0;
     }
     if (iPressed == 0) {
-        OnControlSelected(kidcPlaySinglePlayer);
+        EndForm(kidcPlaySinglePlayer);
     } else if (iPressed == 1) {
-        OnControlSelected(kidcPlayMultiPlayer);
+        EndForm(kidcPlayMultiPlayer);
     } else {
-        OnControlSelected(kidcCancel);
+        EndForm(kidcCancel);
     }
     return true;
 }
