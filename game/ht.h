@@ -3877,6 +3877,7 @@ public:
 	// Form overrides
 
 	virtual bool Init(FormMgr *pfrmm, IniReader *pini, word idf) secGame;
+	virtual void OnPaint(DibBitmap *pbm) secGame;
 	virtual void OnControlSelected(word idc) secGame;
 	virtual void OnControlNotify(word idc, int nNotify);
     virtual bool OnPenEvent(Event *pevt);
@@ -3890,6 +3891,10 @@ private:
     bool IsSelectedMissionLocked(ListControl *plstc);
     void SwitchToMissionType(MissionType mt);
     void UpdateDescription();
+	void UpdateLayout();
+	void HideLegacyControls();
+	bool GetCardMission(int iCard, int *piMission, MissionDescription *pmd,
+			bool *pfLocked, bool *pfComplete);
 
     int m_fMagicUnlock;
     int m_cMagic;
@@ -3897,6 +3902,11 @@ private:
     const MissionIdentifier *m_pmiidFind;
     MissionType m_mt;
     ListControl *m_aplstc[3];
+	Rect m_arcTabs[3];
+	Rect m_arcCards[4];
+	Rect m_rcPlay;
+	Rect m_rcBack;
+	int m_iPressedZone;
 };
 
 // LoadGameForm

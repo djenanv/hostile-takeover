@@ -45,6 +45,11 @@ SelectMissionForm::SelectMissionForm(MissionList *pml,
     m_fMagicUnlock = true;
 #endif
     memset(m_aplstc, 0, sizeof(m_aplstc));
+    memset(m_arcTabs, 0, sizeof(m_arcTabs));
+    memset(m_arcCards, 0, sizeof(m_arcCards));
+    m_rcPlay.SetEmpty();
+    m_rcBack.SetEmpty();
+    m_iPressedZone = -1;
 }
 
 bool SelectMissionForm::Init(FormMgr *pfrmm, IniReader *pini, word idf) {
@@ -101,11 +106,231 @@ bool SelectMissionForm::Init(FormMgr *pfrmm, IniReader *pini, word idf) {
 
     MissionType mt = InitLists(iMissionSelect);
     SwitchToMissionType(mt);
+	HideLegacyControls();
 
     // Hide this label - only show it if there are no addon packs
     GetControlPtr(kidcAddOnMessage)->Show(false);
 
 	return true;
+}
+
+void SelectMissionForm::HideLegacyControls() {
+	for (int i = 0; i < ARRAYSIZE(m_aplstc); i++) {
+		if (m_aplstc[i] != NULL) {
+			m_aplstc[i]->Show(false);
+		}
+	}
+	word aidc[] = { kidcCategories, kidcMissionPackInfo, kidcAddOnMessage,
+			kidcOk, kidcCancel };
+	for (int i = 0; i < ARRAYSIZE(aidc); i++) {
+		Control *pctl = GetControlPtr(aidc[i]);
+		if (pctl != NULL) {
+			pctl->Show(false);
+		}
+	}
+}
+
+void SelectMissionForm::UpdateLayout() {
+	int cx = m_rc.Width();
+	int cy = m_rc.Height();
+	int xPad = _max(PcFromFc(6), cx / 40);
+	int gap = _max(PcFromFc(3), cx / 80);
+	int yTabs = PcFromFc(22);
+	int cyTab = PcFromFc(13);
+	int cxTab = (cx - xPad * 2 - gap * 2) / 3;
+	for (int i = 0; i < 3; i++) {
+		m_arcTabs[i].Set(xPad + i * (cxTab + gap), yTabs,
+				xPad + i * (cxTab + gap) + cxTab, yTabs + cyTab);
+	}
+
+	int yBody = yTabs + cyTab + gap * 2;
+	int yFooter = cy - PcFromFc(25);
+	int cyCard = _max(PcFromFc(54), yFooter - yBody);
+	int cxFeature = (cx - xPad * 2) * 3 / 5;
+	int cxPreview = cx - xPad * 2 - cxFeature - gap;
+	m_arcCards[0].Set(xPad, yBody, xPad + cxFeature, yBody + cyCard);
+	for (int i = 1; i < 4; i++) {
+		int y = yBody + (i - 1) * (cyCard + gap) / 3;
+		int yNext = yBody + i * cyCard / 3;
+		m_arcCards[i].Set(xPad + cxFeature + gap, y,
+				xPad + cxFeature + gap + cxPreview, yNext - gap);
+	}
+
+	int cyButton = PcFromFc(13);
+	int yButton = cy - cyButton - PcFromFc(5);
+	int cxPlay = _max(PcFromFc(54), cxFeature - gap);
+	m_rcPlay.Set(xPad, yButton, xPad + cxPlay, yButton + cyButton);
+	m_rcBack.Set(cx - xPad - PcFromFc(49), yButton,
+		cx - xPad, yButton + cyButton);
+}
+
+static void DrawMissionText(DibBitmap *pbm, Font *pfnt, const char *psz,
+		int x, int y, int cx, int cy, bool fEllipsis) {
+	char sz[128];
+	strncpyz(sz, psz != NULL ? psz : "", sizeof(sz));
+	pfnt->DrawText(pbm, sz, x, y, cx, cy, fEllipsis);
+}
+
+static void DrawMissionBox(DibBitmap *pbm, Rect *prc, Color clrFill,
+		Color clrBorder, int cxyBorder) {
+	pbm->Fill(prc->left, prc->top, prc->Width(), prc->Height(), clrFill);
+	DrawBorder(pbm, prc, cxyBorder, clrBorder);
+}
+
+bool SelectMissionForm::GetCardMission(int iCard, int *piMission,
+		MissionDescription *pmd, bool *pfLocked, bool *pfComplete) {
+	if (iCard < 0 || iCard >= 4 || piMission == NULL || pmd == NULL ||
+			pfLocked == NULL || pfComplete == NULL) {
+		return false;
+	}
+	ListControl *plstc = m_aplstc[IndexFromMissionType(m_mt)];
+	if (plstc == NULL || iCard >= plstc->GetCount()) {
+		return false;
+	}
+	int iTarget = plstc->GetSelectedItemIndex();
+	if (iTarget < 0) {
+		iTarget = 0;
+	}
+	iTarget += iCard;
+	if (iTarget >= plstc->GetCount()) {
+		return false;
+	}
+
+	int iList = 0;
+	int iliLastCompleteStory = -1;
+	for (int i = 0; i < m_pml->GetCount(); i++) {
+		MissionDescription md;
+		if (!m_pml->GetMissionDescription(i, &md) ||
+				md.mt != m_mt) {
+			continue;
+		}
+		MissionIdentifier miid;
+		if (!m_pml->GetMissionIdentifier(i, &miid)) {
+			continue;
+		}
+		bool fLocked = false;
+		if (md.mt == kmtStory) {
+			int iliMissionLocked = iliLastCompleteStory + 1 + kcUnlockAhead;
+			if (iList >= iliMissionLocked) {
+				fLocked = true;
+			}
+		}
+		bool fComplete = gpcptm->IsComplete(&miid);
+		if (md.mt == kmtStory && fComplete) {
+			iliLastCompleteStory = iList;
+		}
+		if (iList == iTarget) {
+			*piMission = i;
+			*pmd = md;
+			*pfLocked = fLocked;
+			*pfComplete = fComplete;
+			return true;
+		}
+		iList++;
+	}
+	return false;
+}
+
+void SelectMissionForm::OnPaint(DibBitmap *pbm) {
+	UpdateLayout();
+	int xForm = m_rc.left;
+	int yForm = m_rc.top;
+	Color clrPanel = GetColor(kiclrMenuBack);
+	Color clrPanelAlt = GetColor(kiclrListBackground);
+	Color clrAccent = GetColor(kiclrCyanSideFirst);
+	Color clrAccentBright = GetColor(kiclrWhite);
+	Color clrMuted = GetColor(kiclrMediumGray);
+	Font *pfntTitle = gapfnt[kifntTitle];
+	Font *pfnt = gapfnt[kifntShadow];
+	Font *pfntButton = gapfnt[kifntButton];
+
+	DrawMissionText(pbm, pfntTitle, "PLAY SINGLE PLAYER MISSION", xForm,
+			yForm + PcFromFc(5), m_rc.Width(), PcFromFc(13), false);
+	DrawMissionText(pbm, gapfnt[kifntDefault], "SELECT YOUR NEXT OPERATION",
+			xForm + PcFromFc(8), yForm + PcFromFc(17),
+			m_rc.Width() - PcFromFc(16), PcFromFc(7), false);
+
+	const char *aszTabs[] = { "STORY", "CHALLENGE", "ADD-ON" };
+	for (int i = 0; i < 3; i++) {
+		Rect rc = m_arcTabs[i];
+		rc.Offset(xForm, yForm);
+		bool fSelected = (i == IndexFromMissionType(m_mt));
+		DrawMissionBox(pbm, &rc, fSelected ? clrAccent : clrPanel,
+				fSelected ? clrAccentBright : clrMuted, PcFromFc(1));
+		DrawMissionText(pbm, pfnt, aszTabs[i], rc.left, rc.top + PcFromFc(3),
+				rc.Width(), rc.Height() - PcFromFc(3), false);
+	}
+
+	ListControl *plstc = m_aplstc[IndexFromMissionType(m_mt)];
+	int iSelected = plstc != NULL ? plstc->GetSelectedItemIndex() : -1;
+	MissionDescription mdSelected;
+	int iMissionSelected = -1;
+	bool fSelectedLocked = false;
+	bool fSelectedComplete = false;
+	GetCardMission(0, &iMissionSelected, &mdSelected, &fSelectedLocked,
+			&fSelectedComplete);
+
+	for (int i = 0; i < 4; i++) {
+		int iMission;
+		MissionDescription md;
+		bool fLocked;
+		bool fComplete;
+		if (!GetCardMission(i, &iMission, &md, &fLocked, &fComplete)) {
+			continue;
+		}
+		Rect rc = m_arcCards[i];
+		rc.Offset(xForm, yForm);
+		bool fFeature = (i == 0);
+		// Card zero is always the selected mission; the compact cards are the
+		// missions immediately following it in the current category.
+		bool fCurrent = (i == 0);
+		Color clrFill = fFeature ? clrPanelAlt : clrPanel;
+		Color clrBorder = fCurrent ? clrAccentBright :
+				(fLocked ? clrMuted : clrAccent);
+		DrawMissionBox(pbm, &rc, clrFill, clrBorder, fCurrent ? PcFromFc(2) : PcFromFc(1));
+
+		char szNumber[16];
+		sprintf(szNumber, "M%02d", (plstc != NULL ? iSelected : 0) + i);
+		if (fFeature) {
+			DrawMissionText(pbm, pfntTitle, szNumber, rc.left + PcFromFc(6),
+				rc.top + PcFromFc(6), rc.Width() - PcFromFc(12), PcFromFc(13), false);
+			DrawMissionText(pbm, pfntTitle, md.szLvlTitle,
+				rc.left + PcFromFc(6), rc.top + PcFromFc(22),
+				rc.Width() - PcFromFc(12), PcFromFc(16), true);
+			DrawMissionText(pbm, pfnt, md.szPackName, rc.left + PcFromFc(6),
+				rc.top + PcFromFc(39), rc.Width() - PcFromFc(12), PcFromFc(8), true);
+			const char *pszStatus = fLocked ? "LOCKED" :
+					(fComplete ? "COMPLETE" : "READY TO DEPLOY");
+			DrawMissionText(pbm, pfnt, pszStatus, rc.left + PcFromFc(6),
+				rc.bottom - PcFromFc(12), rc.Width() - PcFromFc(12), PcFromFc(8), false);
+		} else {
+			DrawMissionText(pbm, pfnt, szNumber, rc.left + PcFromFc(4),
+				rc.top + PcFromFc(3), PcFromFc(30), PcFromFc(8), false);
+			DrawMissionText(pbm, pfnt, md.szLvlTitle, rc.left + PcFromFc(34),
+				rc.top + PcFromFc(3), rc.Width() - PcFromFc(38),
+				rc.Height() - PcFromFc(5), true);
+			if (fLocked) {
+				DrawMissionText(pbm, pfnt, "LOCKED", rc.left + PcFromFc(4),
+					rc.bottom - PcFromFc(9), rc.Width() - PcFromFc(8), PcFromFc(7), false);
+			}
+		}
+	}
+
+	Rect rcPlay = m_rcPlay;
+	rcPlay.Offset(xForm, yForm);
+	bool fCanPlay = iSelected >= 0 && (!fSelectedLocked || m_fMagicUnlock);
+	DrawMissionBox(pbm, &rcPlay, fCanPlay ? clrAccent : clrPanel,
+			fCanPlay ? clrAccentBright : clrMuted, PcFromFc(1));
+	DrawMissionText(pbm, pfntButton, fCanPlay ? "PLAY" : "SELECT A MISSION",
+			rcPlay.left, rcPlay.top + PcFromFc(3), rcPlay.Width(),
+		rcPlay.Height() - PcFromFc(3), false);
+
+	Rect rcBack = m_rcBack;
+	rcBack.Offset(xForm, yForm);
+	DrawMissionBox(pbm, &rcBack, clrPanel, clrAccent, PcFromFc(1));
+	DrawMissionText(pbm, pfntButton, "BACK", rcBack.left,
+			rcBack.top + PcFromFc(3), rcBack.Width(),
+		rcBack.Height() - PcFromFc(3), false);
 }
 
 int SelectMissionForm::IndexFromMissionType(MissionType mt) {
@@ -252,31 +477,98 @@ MissionType SelectMissionForm::InitLists(int iMissionSelect) {
 }
 
 bool SelectMissionForm::OnPenEvent(Event *pevt) {
-    if (m_mt != kmtStory || pevt->eType != penUpEvent) {
-        return ShellForm::OnPenEvent(pevt);
-    }
+	UpdateLayout();
+	int x = pevt->x - m_rc.left;
+	int y = pevt->y - m_rc.top;
+	int iZone = -1;
+	for (int i = 0; i < 3; i++) {
+		Rect rc = m_arcTabs[i];
+		if ((pevt->ff & kfEvtFinger) != 0) {
+			rc.Inflate(PcFromFc(2), PcFromFc(2));
+		}
+		if (rc.PtIn(x, y)) {
+			iZone = i;
+			break;
+		}
+	}
+	if (iZone == -1) {
+		for (int i = 0; i < 4; i++) {
+			Rect rc = m_arcCards[i];
+			if ((pevt->ff & kfEvtFinger) != 0) {
+				rc.Inflate(PcFromFc(2), PcFromFc(2));
+			}
+			if (rc.PtIn(x, y)) {
+				iZone = 10 + i;
+				break;
+			}
+		}
+	}
+	if (iZone == -1) {
+		Rect rc = m_rcPlay;
+		if ((pevt->ff & kfEvtFinger) != 0) {
+			rc.Inflate(PcFromFc(2), PcFromFc(2));
+		}
+		if (rc.PtIn(x, y)) {
+			iZone = 20;
+		}
+	}
+	if (iZone == -1) {
+		Rect rc = m_rcBack;
+		if ((pevt->ff & kfEvtFinger) != 0) {
+			rc.Inflate(PcFromFc(2), PcFromFc(2));
+		}
+		if (rc.PtIn(x, y)) {
+			iZone = 21;
+		}
+	}
 
-    Control *pctlCaptureBefore = GetControlCapture();
-    bool f = ShellForm::OnPenEvent(pevt);
-    Control *pctlCaptureAfter = GetControlCapture();
+	if (pevt->eType == penDownEvent) {
+		m_iPressedZone = iZone;
+		return iZone != -1;
+	}
+	if (pevt->eType != penUpEvent) {
+		return m_iPressedZone != -1;
+	}
+	int iPressedZone = m_iPressedZone;
+	m_iPressedZone = -1;
+	if (iPressedZone < 0 || iPressedZone != iZone) {
+		return iPressedZone != -1;
+	}
 
-#define kcMagic 5
-
-    // Tap down on back, move your finger off so it unhighlights, then
-    // let up. Do this  kcMagic times and get a play button.
-    if (pctlCaptureBefore != NULL && pctlCaptureAfter == NULL) {
-        if (pctlCaptureBefore->GetId() == kidcCancel) {
-            m_cMagic++;
-            if (m_cMagic >= kcMagic) {
-                m_cMagic = 0;
-                m_fMagicUnlock = true;
-#ifdef BETA_TIMEOUT
-                GetControlPtr(kidcOk)->Show(true);
-#endif
-            }
-        }
-    }
-    return f;
+	if (iPressedZone >= 0 && iPressedZone < 3) {
+		MissionType mtNew = MissionTypeFromIndex(iPressedZone);
+		if (mtNew != m_mt) {
+			SwitchToMissionType(mtNew);
+			InvalidateRect(NULL);
+		}
+		return true;
+	}
+	if (iPressedZone >= 10 && iPressedZone < 14) {
+		ListControl *plstc = m_aplstc[IndexFromMissionType(m_mt)];
+		int iItem = plstc != NULL ? plstc->GetSelectedItemIndex() : -1;
+		if (plstc != NULL && iItem >= 0) {
+			iItem += iPressedZone - 10;
+			if (iItem < plstc->GetCount()) {
+				plstc->Select(iItem, true, true);
+				UpdateDescription();
+				InvalidateRect(NULL);
+			}
+		}
+		return true;
+	}
+	if (iPressedZone == 20) {
+		ListControl *plstc = m_aplstc[IndexFromMissionType(m_mt)];
+		if (plstc != NULL && plstc->GetSelectedItemIndex() >= 0 &&
+				(!IsSelectedMissionLocked(plstc) || m_fMagicUnlock)) {
+			OnControlSelected(kidcOk);
+		}
+		return true;
+	}
+	if (iPressedZone == 21) {
+		OnControlSelected(kidcCancel);
+		return true;
+	}
+	return false;
 }
 
 void SelectMissionForm::OnControlSelected(word idc) {
