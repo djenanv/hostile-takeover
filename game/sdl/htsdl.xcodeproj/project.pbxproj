@@ -1754,7 +1754,7 @@
 					"-DDEV_BUILD",
 					"-DDEBUG_LOGGING",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.spiffcode.ht;
+				PRODUCT_BUNDLE_IDENTIFIER = com.djenanv.hostiletakeover;
 				PRODUCT_NAME = "Hostile Takeover";
 				SDKROOT = iphoneos;
 				USER_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/../.. $(PROJECT_DIR)/SDL2/include";
@@ -1795,7 +1795,7 @@
 					"-DMULTIPLAYER",
 					"-DTRACKSTATE",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.spiffcode.ht;
+				PRODUCT_BUNDLE_IDENTIFIER = com.djenanv.hostiletakeover;
 				PRODUCT_NAME = "Hostile Takeover";
 				SDKROOT = iphoneos;
 				USER_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/../.. $(PROJECT_DIR)/SDL2/include";
